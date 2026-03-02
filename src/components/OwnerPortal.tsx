@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, CheckCircle, Search, LogOut, Coffee, X, ArrowRight, Clock, RefreshCw, CreditCard, ChevronRight } from 'lucide-react';
-import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { QrReader } from 'react-qr-reader';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface OrderData {
@@ -139,45 +139,13 @@ export default function OwnerPortal() {
         }
     };
 
-    // QR Code Scanner initialization
     const startScanner = () => {
         setIsScanning(true);
         setSelectedOrder(null);
         setErrorMsg('');
-
-        setTimeout(() => {
-            const el = document.getElementById("qr-reader");
-            if (el && !scannerRef.current) {
-                const scanner = new Html5QrcodeScanner(
-                    "qr-reader",
-                    {
-                        fps: 10,
-                        qrbox: { width: 250, height: 250 },
-                        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-                        videoConstraints: { facingMode: "environment" }
-                    },
-                    false
-                );
-
-                scanner.render((decodedText) => {
-                    if (scannerRef.current) {
-                        scannerRef.current.clear();
-                        scannerRef.current = null;
-                    }
-                    setIsScanning(false);
-                    fetchOrder(decodedText);
-                }, () => { });
-
-                scannerRef.current = scanner;
-            }
-        }, 300); // Wait for AnimatePresence mount
     };
 
     const stopScanner = () => {
-        if (scannerRef.current) {
-            scannerRef.current.clear().catch(console.error);
-            scannerRef.current = null;
-        }
         setIsScanning(false);
     };
 
@@ -358,8 +326,17 @@ export default function OwnerPortal() {
                                     <h3 className="font-display font-medium text-lg md:text-xl text-white flex items-center gap-3"><Camera size={20} /> Point camera at QR</h3>
                                     <button onClick={stopScanner} className="text-white hover:bg-white/20 p-2 rounded-full transition-colors"><X size={24} /></button>
                                 </div>
-                                <div className="flex-1 bg-black relative flex items-center justify-center overflow-hidden">
-                                    <div id="qr-reader" className="w-full max-w-2xl h-full [&_video]:object-cover" />
+                                <div className="flex-1 bg-black relative flex items-center justify-center overflow-hidden [&_video]:object-cover">
+                                    <QrReader
+                                        constraints={{ facingMode: 'environment' }}
+                                        onResult={(result: any) => {
+                                            if (!!result) {
+                                                setIsScanning(false);
+                                                fetchOrder(result.getText());
+                                            }
+                                        }}
+                                        className="w-full h-full max-w-2xl"
+                                    />
                                 </div>
                             </motion.div>
                         )}
