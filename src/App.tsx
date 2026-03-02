@@ -559,6 +559,44 @@ const Reviews = () => {
    Contact
    ────────────────────────────────────────────────────────────── */
 const Contact = () => {
+  const [formData, setFormData] = useState({ name: '', email: '', message: '' });
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.name || !formData.email || !formData.message) return;
+
+    setStatus('loading');
+    setErrorMessage('');
+
+    try {
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error?.message || data.error || 'Failed to send message');
+      }
+
+      setStatus('success');
+      setFormData({ name: '', email: '', message: '' });
+      setTimeout(() => setStatus('idle'), 5000); // Reset success message after 5s
+    } catch (err: any) {
+      console.error(err);
+      setStatus('error');
+      setErrorMessage(err.message || 'Something went wrong. Please try again.');
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
   return (
     <section id="contact" className="py-24 bg-[var(--color-bg-secondary)] relative">
       {/* Decorative leaf */}
@@ -607,13 +645,18 @@ const Contact = () => {
               <h3 className="text-[22px] font-display font-semibold text-[var(--color-text-primary)] mb-8 flex items-center gap-2">
                 <Coffee size={20} className="text-[var(--color-accent)]" /> Send a message
               </h3>
-              <form className="space-y-6">
+              <form className="space-y-6" onSubmit={handleSubmit}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-[13px] font-sans font-medium text-[var(--color-text-secondary)] mb-2 uppercase tracking-wide">Name</label>
                     <input
                       type="text"
-                      className="w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl px-4 py-3.5 text-[15px] font-sans text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)]/40 focus:outline-none focus:border-[var(--color-text-primary)] focus:ring-1 focus:ring-[var(--color-text-primary)] transition-all"
+                      name="name"
+                      required
+                      value={formData.name}
+                      onChange={handleChange}
+                      disabled={status === 'loading'}
+                      className="w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl px-4 py-3.5 text-[15px] font-sans text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)]/40 focus:outline-none focus:border-[var(--color-text-primary)] focus:ring-1 focus:ring-[var(--color-text-primary)] transition-all disabled:opacity-50"
                       placeholder="John Doe"
                     />
                   </div>
@@ -621,7 +664,12 @@ const Contact = () => {
                     <label className="block text-[13px] font-sans font-medium text-[var(--color-text-secondary)] mb-2 uppercase tracking-wide">Email</label>
                     <input
                       type="email"
-                      className="w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl px-4 py-3.5 text-[15px] font-sans text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)]/40 focus:outline-none focus:border-[var(--color-text-primary)] focus:ring-1 focus:ring-[var(--color-text-primary)] transition-all"
+                      name="email"
+                      required
+                      value={formData.email}
+                      onChange={handleChange}
+                      disabled={status === 'loading'}
+                      className="w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl px-4 py-3.5 text-[15px] font-sans text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)]/40 focus:outline-none focus:border-[var(--color-text-primary)] focus:ring-1 focus:ring-[var(--color-text-primary)] transition-all disabled:opacity-50"
                       placeholder="john@example.com"
                     />
                   </div>
@@ -630,18 +678,37 @@ const Contact = () => {
                   <label className="block text-[13px] font-sans font-medium text-[var(--color-text-secondary)] mb-2 uppercase tracking-wide">Message</label>
                   <textarea
                     rows={4}
-                    className="w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl px-4 py-3.5 text-[15px] font-sans text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)]/40 focus:outline-none focus:border-[var(--color-text-primary)] focus:ring-1 focus:ring-[var(--color-text-primary)] transition-all resize-none"
+                    name="message"
+                    required
+                    value={formData.message}
+                    onChange={handleChange}
+                    disabled={status === 'loading'}
+                    className="w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl px-4 py-3.5 text-[15px] font-sans text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)]/40 focus:outline-none focus:border-[var(--color-text-primary)] focus:ring-1 focus:ring-[var(--color-text-primary)] transition-all resize-none disabled:opacity-50"
                     placeholder="How can we help?"
                   ></textarea>
                 </div>
+
+                {status === 'success' && (
+                  <div className="p-4 bg-green-50/5 text-green-600 border border-green-200/20 rounded-xl text-sm font-medium">
+                    Message sent successfully! We'll get back to you soon.
+                  </div>
+                )}
+
+                {status === 'error' && (
+                  <div className="p-4 bg-red-50/5 text-red-500 border border-red-200/20 rounded-xl text-sm font-medium">
+                    {errorMessage}
+                  </div>
+                )}
+
                 <motion.button
-                  type="button"
-                  className="bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] font-sans font-semibold text-[15px] px-8 py-4 rounded-full transition-all w-full flex items-center justify-center gap-2 group hover:bg-[var(--color-accent)] hover:text-[var(--color-text-primary)]"
-                  whileHover={{ scale: 1.02, boxShadow: '0 8px 24px rgba(44,40,37,0.15)' }}
-                  whileTap={{ scale: 0.98 }}
+                  type="submit"
+                  disabled={status === 'loading'}
+                  className="bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] font-sans font-semibold text-[15px] px-8 py-4 rounded-full transition-all w-full flex items-center justify-center gap-2 group hover:bg-[var(--color-accent)] hover:text-[var(--color-text-primary)] disabled:opacity-70"
+                  whileHover={status !== 'loading' ? { scale: 1.02, boxShadow: '0 8px 24px rgba(44,40,37,0.15)' } : {}}
+                  whileTap={status !== 'loading' ? { scale: 0.98 } : {}}
                 >
-                  Send Message
-                  <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                  {status === 'loading' ? 'Sending...' : 'Send Message'}
+                  {status !== 'loading' && <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />}
                 </motion.button>
               </form>
             </div>
