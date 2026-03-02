@@ -96,7 +96,7 @@ const WavyDivider = ({ flip = false }: { flip?: boolean }) => (
 /* ──────────────────────────────────────────────────────────────
    Navigation
    ────────────────────────────────────────────────────────────── */
-const Navigation = () => {
+const Navigation = ({ view, setView }: { view: string, setView: (v: 'home' | 'menu') => void }) => {
   const [isOpen, setIsOpen] = useState(false);
 
   const navLinks = [
@@ -111,7 +111,7 @@ const Navigation = () => {
     <nav className="absolute top-0 left-0 right-0 z-40 py-6">
       <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
         {/* Logo */}
-        <a href="#" className="flex items-center gap-2 text-[var(--color-text-primary)] z-50 hover:opacity-80 transition-opacity">
+        <a href="#" onClick={() => { setView('home'); window.scrollTo(0, 0); }} className="flex items-center gap-2 text-[var(--color-text-primary)] z-50 hover:opacity-80 transition-opacity">
           <Coffee size={24} className="text-[var(--color-accent)]" />
           <span className="font-display font-bold text-xl tracking-tight">Roastly</span>
         </a>
@@ -121,7 +121,16 @@ const Navigation = () => {
           {navLinks.map((link) => (
             <a
               key={link.name}
-              href={link.href}
+              href={view === 'menu' && link.name !== 'Menu' ? '#' : link.href}
+              onClick={(e) => {
+                if (link.name === 'Menu') {
+                  e.preventDefault();
+                  setView('menu');
+                  window.scrollTo(0, 0);
+                } else if (view === 'menu') {
+                  setView('home');
+                }
+              }}
               className="relative hover:text-[var(--color-text-primary)] transition-colors duration-200 py-1 group"
             >
               {link.name}
@@ -132,9 +141,9 @@ const Navigation = () => {
 
         {/* Desktop CTA */}
         <div className="hidden md:block z-50">
-          <a href="#menu" className="text-[var(--color-text-primary)] text-[14px] font-medium px-5 py-2.5 rounded-full border border-[var(--color-border)] hover:bg-[var(--color-text-primary)] hover:text-[var(--color-bg-primary)] transition-all duration-300">
+          <button onClick={() => { setView('menu'); window.scrollTo(0, 0); }} className="text-[var(--color-text-primary)] text-[14px] font-medium px-5 py-2.5 rounded-full border border-[var(--color-border)] hover:bg-[var(--color-text-primary)] hover:text-[var(--color-bg-primary)] transition-all duration-300 cursor-pointer">
             Order Ahead
-          </a>
+          </button>
         </div>
 
         {/* Mobile Toggle */}
@@ -158,9 +167,18 @@ const Navigation = () => {
           {navLinks.map((link, i) => (
             <motion.a
               key={link.name}
-              href={link.href}
+              href={view === 'menu' && link.name !== 'Menu' ? '#' : link.href}
               className="text-[var(--color-text-primary)] text-[16px] font-medium"
-              onClick={() => setIsOpen(false)}
+              onClick={(e) => {
+                setIsOpen(false);
+                if (link.name === 'Menu') {
+                  e.preventDefault();
+                  setView('menu');
+                  window.scrollTo(0, 0);
+                } else if (view === 'menu') {
+                  setView('home');
+                }
+              }}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.05 }}
@@ -168,9 +186,9 @@ const Navigation = () => {
               {link.name}
             </motion.a>
           ))}
-          <a href="#menu" className="bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] text-[15px] font-medium px-4 py-3 rounded-lg mt-2 w-full text-center block" onClick={() => setIsOpen(false)}>
+          <button className="bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] text-[15px] font-medium px-4 py-3 rounded-lg mt-2 w-full text-center block" onClick={() => { setIsOpen(false); setView('menu'); window.scrollTo(0, 0); }}>
             Order Ahead
-          </a>
+          </button>
         </motion.div>
       )}
     </nav>
@@ -180,7 +198,7 @@ const Navigation = () => {
 /* ──────────────────────────────────────────────────────────────
    Hero
    ────────────────────────────────────────────────────────────── */
-const Hero = () => {
+const Hero = ({ setView }: { setView: (v: 'home' | 'menu') => void }) => {
   return (
     <section className="relative pt-32 pb-0 flex flex-col items-center text-center min-h-screen justify-start overflow-hidden bg-[var(--color-bg-primary)]">
 
@@ -292,6 +310,7 @@ const Hero = () => {
 
             {/* Circular CTA */}
             <motion.button
+              onClick={() => { setView('menu'); window.scrollTo(0, 0); }}
               className="absolute right-[-2%] md:right-10 top-1/2 -translate-y-1/2 z-20 w-24 h-24 md:w-32 md:h-32 bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] rounded-full flex items-center justify-center group border border-[var(--color-border)] hover:bg-[var(--color-text-primary)] hover:text-[var(--color-bg-primary)] transition-all duration-300 shadow-xl"
               initial={{ opacity: 0, scale: 0.6 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -356,12 +375,12 @@ const WhyUs = () => {
 /* ──────────────────────────────────────────────────────────────
    Our Menu — Using Custom User Images
    ────────────────────────────────────────────────────────────── */
-const OurMenu = () => {
+const OurMenu = ({ setView }: { setView: (v: 'home' | 'menu') => void }) => {
   const items = [
     { img: '/clasic expresso.jpg', title: 'Classic Espresso', desc: 'Rich & Bold', price: '$4.50' },
     { img: '/velvetchocolateespresso.webp', title: 'Velvet Cappuccino', desc: 'Smooth & Creamy', price: '$5.50' },
     { img: '/artisan.webp', title: 'Artisan Pastries', desc: 'Baked Fresh Daily', price: '$6.00' },
-    { img: '/house blend.jpg', title: 'House Blend Beans', desc: 'Freshly Roasted', price: '$15.00' },
+    { img: '/house blend.png', title: 'House Blend Beans', desc: 'Freshly Roasted', price: '$15.00' },
   ];
 
   return (
@@ -379,15 +398,15 @@ const OurMenu = () => {
               </h2>
               <p className="text-[15px] font-sans text-[var(--color-text-secondary)] max-w-md">Carefully crafted to elevate your daily routine.</p>
             </div>
-            <motion.a
-              href="#"
+            <motion.button
+              onClick={() => { setView('menu'); window.scrollTo(0, 0); }}
               className="text-[14px] font-sans font-medium text-[var(--color-bg-primary)] bg-[var(--color-text-primary)] px-6 py-3 rounded-full flex items-center gap-2 group hover:opacity-90 transition-opacity"
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
             >
               View Full Menu
               <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
-            </motion.a>
+            </motion.button>
           </div>
         </Reveal>
 
@@ -427,7 +446,7 @@ const OurMenu = () => {
 /* ──────────────────────────────────────────────────────────────
    Banner CTA
    ────────────────────────────────────────────────────────────── */
-const Banner = () => {
+const Banner = ({ setView }: { setView: (v: 'home' | 'menu') => void }) => {
   return (
     <section id="story" className="py-20 bg-[var(--color-bg-secondary)] relative z-10">
 
@@ -458,8 +477,8 @@ const Banner = () => {
               <p className="text-[15px] font-sans text-[var(--color-bg-primary)]/80 mb-8 leading-relaxed">
                 Skip the line and order ahead. Your perfect cup, handcrafted with love, will be waiting for you.
               </p>
-              <motion.a
-                href="#menu"
+              <motion.button
+                onClick={() => { setView('menu'); window.scrollTo(0, 0); }}
                 className="inline-flex items-center gap-3 bg-[var(--color-accent)] text-[var(--color-text-primary)] px-8 py-4 rounded-full font-sans font-semibold text-[15px] shadow-lg hover:shadow-xl transition-shadow group"
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.97 }}
@@ -467,7 +486,7 @@ const Banner = () => {
                 <Coffee size={18} />
                 Order Your Cup
                 <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
-              </motion.a>
+              </motion.button>
             </div>
 
             {/* Premium to-go cup user image */}
@@ -826,21 +845,31 @@ const Footer = () => {
 /* ──────────────────────────────────────────────────────────────
    App Shell
    ────────────────────────────────────────────────────────────── */
+import FullMenu from './components/FullMenu';
+
 export default function App() {
+  const [view, setView] = useState<'home' | 'menu'>('home');
+
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen relative">
       <CustomCursor />
-      <Navigation />
+      <Navigation view={view} setView={setView} />
       <main>
-        <Hero />
-        <WhyUs />
-        <WavyDivider />
-        <OurMenu />
-        {/* Removed branch divider since purpleflora is positioned relatively inside Menu block */}
-        <Banner />
-        <Reviews />
-        <WavyDivider />
-        <Contact />
+        {view === 'home' ? (
+          <>
+            <Hero setView={setView} />
+            <WhyUs />
+            <WavyDivider />
+            <OurMenu setView={setView} />
+            {/* Removed branch divider since purpleflora is positioned relatively inside Menu block */}
+            <Banner setView={setView} />
+            <Reviews />
+            <WavyDivider />
+            <Contact />
+          </>
+        ) : (
+          <FullMenu />
+        )}
       </main>
       <Footer />
     </div>
