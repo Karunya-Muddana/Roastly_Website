@@ -69,6 +69,22 @@ export default async function handler(req: any, res: any) {
             return res.status(200).json({ success: true, message: 'Order marked as paid and finished.' });
         }
 
+        // Action: Fetch Recent Orders for Dashboard
+        if (action === 'fetch_recent_orders') {
+            const { data, error } = await supabase
+                .from('orders')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(50);
+
+            if (error) {
+                console.error('Fetch recent error:', error);
+                return res.status(500).json({ error: 'Failed to fetch recent orders' });
+            }
+
+            return res.status(200).json({ success: true, orders: data });
+        }
+
         return res.status(400).json({ error: 'Invalid action provided' });
 
     } catch (error) {

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, CheckCircle, Search, LogOut, Coffee, X, ArrowRight } from 'lucide-react';
+import { Camera, CheckCircle, Search, LogOut, Coffee, X, ArrowRight, Clock, RefreshCw, CreditCard, ChevronRight } from 'lucide-react';
 import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -17,19 +17,24 @@ export default function OwnerPortal() {
     const [errorMsg, setErrorMsg] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
-    // Scanner / Search states
+    // Dashboard States
+    const [orders, setOrders] = useState<OrderData[]>([]);
+    const [filterStatus, setFilterStatus] = useState<'pending' | 'paid'>('pending');
+    const [isRefreshing, setIsRefreshing] = useState(false);
+
+    // Right Pane States
     const [searchTerm, setSearchTerm] = useState('');
-    const [order, setOrder] = useState<OrderData | null>(null);
+    const [selectedOrder, setSelectedOrder] = useState<OrderData | null>(null);
     const [isScanning, setIsScanning] = useState(false);
     const scannerRef = useRef<Html5QrcodeScanner | null>(null);
-    const scannerElementRef = useRef<HTMLDivElement>(null);
 
-    // Auto-focus logic for search
+    // Poll for orders every 10s
     useEffect(() => {
-        if (isAuthenticated && !isScanning && !order) {
-            document.getElementById('order-search')?.focus();
-        }
-    }, [isAuthenticated, isScanning, order]);
+        if (!isAuthenticated) return;
+        fetchRecentOrders(false);
+        const interval = setInterval(() => fetchRecentOrders(false), 10000);
+        return () => clearInterval(interval);
+    }, [isAuthenticated]);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -37,24 +42,45 @@ export default function OwnerPortal() {
         setIsLoading(true);
 
         try {
-            // A simple ping to the admin endpoint with NO short_id to test auth
             const res = await fetch('/api/admin', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'ping', pin })
             });
-            const data = await res.json();
-
-            // Expected to fail 'invalid action' if PIN is correct, 'Unauthorized' if wrong
             if (res.status === 401) {
-                setErrorMsg('Invalid PIN. Please try again.');
+                setErrorMsg('Invalid PIN.');
             } else {
                 setIsAuthenticated(true);
             }
         } catch (err) {
-            setErrorMsg('Connection error. Try again.');
+            setErrorMsg('Connection error.');
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const fetchRecentOrders = async (showRefreshUi = true) => {
+        if (showRefreshUi) setIsRefreshing(true);
+        try {
+            const res = await fetch('/api/admin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'fetch_recent_orders', pin })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setOrders(data.orders);
+                // Hint for RLS issue if needed:
+                if (data.orders.length === 0 && errorMsg === '') {
+                    // It's possible the DB is just empty, but silently we ensure no crash.
+                }
+            } else {
+                if (showRefreshUi) setErrorMsg(data.error || 'Failed to fetch tracking list.');
+            }
+        } catch (err) {
+            if (showRefreshUi) setErrorMsg('Connection error.');
+        } finally {
+            if (showRefreshUi) setIsRefreshing(false);
         }
     };
 
@@ -69,12 +95,12 @@ export default function OwnerPortal() {
             });
             const data = await res.json();
 
-            if (res.ok && data.success) {
-                setOrder(data.order);
+            if (res.ok && data.success && data.order) {
+                setSelectedOrder(data.order);
                 setSearchTerm('');
             } else {
-                setErrorMsg(data.error || 'Order not found.');
-                setOrder(null);
+                setErrorMsg(data.error || 'Order not found. Check SUPABASE_SERVICE_ROLE_KEY if this persists.');
+                setSelectedOrder(null);
             }
         } catch (err) {
             setErrorMsg('Failed to fetch the order.');
@@ -90,20 +116,20 @@ export default function OwnerPortal() {
         }
     };
 
-    const markAsPaid = async () => {
-        if (!order) return;
+    const markAsPaid = async (targetOrder: OrderData) => {
         setIsLoading(true);
         try {
             const res = await fetch('/api/admin', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'mark_paid', pin, short_id: order.short_id })
+                body: JSON.stringify({ action: 'mark_paid', pin, short_id: targetOrder.short_id })
             });
-            const data = await res.json();
             if (res.ok) {
-                // Locally update state to show immediately
-                setOrder({ ...order, status: 'paid' });
+                // Instantly update selected & list
+                setSelectedOrder({ ...targetOrder, status: 'paid' });
+                setOrders(prev => prev.map(o => o.short_id === targetOrder.short_id ? { ...o, status: 'paid' } : o));
             } else {
+                const data = await res.json();
                 setErrorMsg(data.error || 'Failed to update order.');
             }
         } catch (err) {
@@ -116,29 +142,30 @@ export default function OwnerPortal() {
     // QR Code Scanner initialization
     const startScanner = () => {
         setIsScanning(true);
-        setOrder(null);
+        setSelectedOrder(null);
         setErrorMsg('');
 
         setTimeout(() => {
-            if (scannerElementRef.current && !scannerRef.current) {
+            const el = document.getElementById("qr-reader");
+            if (el && !scannerRef.current) {
                 const scanner = new Html5QrcodeScanner(
                     "qr-reader",
                     { fps: 10, qrbox: { width: 250, height: 250 }, formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE] },
-                    /* verbose= */ false
+                    false
                 );
 
                 scanner.render((decodedText) => {
-                    // Success callback
-                    scanner.clear(); // stop scanning on success
+                    if (scannerRef.current) {
+                        scannerRef.current.clear();
+                        scannerRef.current = null;
+                    }
                     setIsScanning(false);
-                    fetchOrder(decodedText); // Expecting something like "ROASTLY-ABCD"
-                }, (error) => {
-                    // Ignore scan errors/noise
-                });
+                    fetchOrder(decodedText);
+                }, () => { });
 
                 scannerRef.current = scanner;
             }
-        }, 100); // slight delay for mounting DOM
+        }, 300); // Wait for AnimatePresence mount
     };
 
     const stopScanner = () => {
@@ -149,11 +176,16 @@ export default function OwnerPortal() {
         setIsScanning(false);
     };
 
+    const filteredOrders = orders.filter(o => o.status === filterStatus);
+
+    const formatTime = (ts: string) => {
+        return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    };
+
     // Render Login
     if (!isAuthenticated) {
         return (
             <div className="min-h-screen bg-[var(--color-bg-primary)] flex items-center justify-center p-6 relative overflow-hidden">
-                {/* Visual decorations matching the brand */}
                 <div className="absolute top-1/4 left-10 w-64 h-64 bg-[var(--color-bg-secondary)] rounded-full blur-3xl opacity-50 mix-blend-multiply pointer-events-none" />
                 <div className="absolute bottom-1/4 right-10 w-80 h-80 bg-[var(--color-accent)] rounded-full blur-[100px] opacity-10 mix-blend-multiply pointer-events-none" />
 
@@ -166,27 +198,25 @@ export default function OwnerPortal() {
                             <Coffee className="text-[var(--color-bg-primary)]" size={32} />
                         </div>
                     </div>
-                    <h1 className="text-[28px] font-display font-bold text-center text-[var(--color-text-primary)] mb-2">Owner Portal</h1>
-                    <p className="text-center text-[var(--color-text-secondary)] mb-8 font-sans">Secure access for staff only.</p>
+                    <h1 className="text-[28px] font-display font-bold text-center text-[var(--color-text-primary)] mb-2">Staff Portal</h1>
+                    <p className="text-center text-[var(--color-text-secondary)] mb-8 font-sans">Secure dashboard access.</p>
 
                     <form onSubmit={handleLogin} className="space-y-4">
-                        <div>
-                            <input
-                                type="password"
-                                placeholder="Enter PIN (Demo: 7788)"
-                                value={pin}
-                                onChange={(e) => setPin(e.target.value)}
-                                className="w-full px-5 py-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] focus:border-[var(--color-accent)] outline-none text-[16px] text-center tracking-widest font-mono text-[var(--color-text-primary)]"
-                                autoFocus
-                            />
-                        </div>
+                        <input
+                            type="password"
+                            placeholder="Enter PIN (Demo: 7788)"
+                            value={pin}
+                            onChange={(e) => setPin(e.target.value)}
+                            className="w-full px-5 py-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] focus:border-[var(--color-accent)] outline-none text-[16px] text-center tracking-widest font-mono text-[var(--color-text-primary)]"
+                            autoFocus
+                        />
                         {errorMsg && <p className="text-red-500 text-sm text-center font-medium">{errorMsg}</p>}
                         <button
                             type="submit"
                             disabled={isLoading || pin.length < 4}
-                            className="w-full py-4 rounded-xl bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] font-bold disabled:opacity-50 hover:opacity-90 transition-opacity flex justify-center items-center"
+                            className="w-full py-4 rounded-xl bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] font-bold disabled:opacity-50 hover:opacity-90 transition-opacity"
                         >
-                            {isLoading ? 'Verifying...' : 'Access Portal'}
+                            {isLoading ? 'Verifying...' : 'Access Dashboard'}
                         </button>
                     </form>
                 </motion.div>
@@ -195,127 +225,202 @@ export default function OwnerPortal() {
     }
 
     return (
-        <div className="min-h-[100dvh] bg-[var(--color-bg-primary)] flex flex-col items-center p-4 sm:p-8 pt-24 font-sans relative">
-            <button onClick={() => { setIsAuthenticated(false); setPin(''); setOrder(null); }} className="absolute top-6 right-6 p-2 rounded-full hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors">
-                <LogOut size={24} />
-            </button>
+        <div className="min-h-screen h-screen bg-[#F9F7F5] flex flex-col font-sans overflow-hidden">
+            {/* Topbar */}
+            <header className="h-[72px] bg-white border-b border-gray-200 px-6 flex items-center justify-between shrink-0 z-20 shadow-sm">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-[var(--color-accent)] rounded-lg flex items-center justify-center text-white">
+                        <Coffee size={20} />
+                    </div>
+                    <div>
+                        <h1 className="font-display font-bold text-[18px] text-[var(--color-text-primary)] leading-tight">Roastly HQ</h1>
+                        <p className="text-[12px] font-medium text-gray-500">Order Management System</p>
+                    </div>
+                </div>
+                <button onClick={() => { setIsAuthenticated(false); setPin(''); clearInterval(1); }} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors font-semibold text-sm">
+                    <LogOut size={16} /> Logout
+                </button>
+            </header>
 
-            <div className="w-full max-w-2xl text-center mb-10">
-                <h1 className="text-[32px] sm:text-[40px] font-display font-bold text-[var(--color-text-primary)] mb-2">Order Dashboard</h1>
-                <p className="text-[var(--color-text-secondary)]">Search or scan digital order slips to process payments.</p>
-            </div>
+            <div className="flex-1 flex overflow-hidden">
 
-            <AnimatePresence mode="wait">
-                {/* 1. Dashboard Default View - Search & Scan */}
-                {!order && !isScanning && (
-                    <motion.div key="search" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="w-full max-w-2xl bg-[var(--color-bg-secondary)] rounded-3xl p-6 sm:p-10 border border-[var(--color-border)] shadow-sm">
-                        <form onSubmit={handleSearchSubmit} className="relative mb-8">
-                            <input
-                                id="order-search"
-                                type="text"
-                                placeholder="Enter 4-digit code (e.g. ABCD)"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value.toUpperCase())}
-                                maxLength={10}
-                                className="w-full px-6 py-5 rounded-2xl border border-[var(--color-border)] bg-white focus:border-[var(--color-accent)] outline-none text-[20px] font-mono tracking-widest text-center text-[var(--color-text-primary)] placeholder:tracking-normal placeholder:font-sans placeholder:text-[16px] shadow-inner"
-                            />
-                            <button type="submit" disabled={isLoading || searchTerm.length < 4} className="absolute right-3 top-1/2 -translate-y-1/2 bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] p-3 rounded-xl disabled:opacity-50">
-                                {isLoading ? <span className="animate-spin text-xl">◌</span> : <Search size={20} />}
+                {/* Left Panel: Feed */}
+                <aside className="w-[380px] bg-white border-r border-gray-200 flex flex-col z-10 shadow-[4px_0_24px_rgba(0,0,0,0.02)] relative">
+                    <div className="p-6 pb-4 border-b border-gray-100">
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-[20px] font-display font-bold text-gray-900">Live Feed</h2>
+                            <button onClick={() => fetchRecentOrders(true)} className={`p-2 rounded-full hover:bg-gray-100 text-gray-500 transition-all ${isRefreshing ? 'animate-spin' : ''}`}>
+                                <RefreshCw size={18} />
                             </button>
-                        </form>
-
-                        {errorMsg && <p className="text-red-500 text-center mb-6 font-medium bg-red-50 p-3 rounded-lg border border-red-100">{errorMsg}</p>}
-
-                        <div className="flex items-center gap-4 mb-8">
-                            <div className="h-[1px] bg-[var(--color-border)] flex-1" />
-                            <span className="text-[var(--color-text-secondary)] font-medium text-sm px-2">OR</span>
-                            <div className="h-[1px] bg-[var(--color-border)] flex-1" />
                         </div>
-
-                        <button onClick={startScanner} className="w-full py-5 rounded-2xl border-2 border-[var(--color-text-primary)] text-[var(--color-text-primary)] font-bold text-[16px] flex justify-center items-center gap-3 hover:bg-[var(--color-text-primary)] hover:text-[var(--color-bg-primary)] transition-all">
-                            <Camera size={24} /> Scan Customer QR Code
-                        </button>
-                    </motion.div>
-                )}
-
-                {/* 2. Scanner View */}
-                {isScanning && (
-                    <motion.div key="scanner" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} className="w-full max-w-2xl bg-white rounded-3xl overflow-hidden shadow-2xl border border-[var(--color-border)] flex flex-col">
-                        <div className="p-4 bg-[var(--color-text-primary)] flex justify-between items-center text-white">
-                            <h3 className="font-display font-medium text-lg flex items-center gap-2"><Camera size={20} /> Scan QR Code</h3>
-                            <button onClick={stopScanner} className="hover:bg-red-500/20 p-2 rounded-full transition-colors"><X size={24} /></button>
-                        </div>
-                        <div className="p-2 sm:p-6 bg-black">
-                            <div id="qr-reader" ref={scannerElementRef} className="w-full rounded-2xl overflow-hidden" style={{ border: 'none' }}></div>
-                        </div>
-                        <div className="p-4 text-center bg-[var(--color-bg-primary)]">
-                            <p className="text-[14px] text-[var(--color-text-secondary)]">Align the customer's QR code within the frame.</p>
-                        </div>
-                    </motion.div>
-                )}
-
-                {/* 3. Order Details View */}
-                {order && !isScanning && (
-                    <motion.div key="order" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-3xl flex flex-col md:flex-row gap-6">
-                        {/* Order Info Panel */}
-                        <div className="flex-1 bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-[var(--color-border)]">
-                            <button onClick={() => setOrder(null)} className="flex items-center text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] font-medium text-sm mb-6 transition-colors group">
-                                <ArrowRight className="mr-2 rotate-180 group-hover:-translate-x-1 transition-transform" size={16} /> Back to Search
+                        <div className="flex bg-gray-100 p-1 rounded-xl">
+                            <button onClick={() => setFilterStatus('pending')} className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${filterStatus === 'pending' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                                Pending ({orders.filter(o => o.status === 'pending').length})
                             </button>
-
-                            <div className="flex justify-between items-end mb-8 border-b border-[var(--color-border)] pb-6">
-                                <div>
-                                    <p className="text-[13px] uppercase tracking-wider font-semibold text-[var(--color-text-secondary)] mb-1">Order #</p>
-                                    <h2 className="text-[40px] font-display font-bold text-[var(--color-text-primary)] leading-none -tracking-[0.02em]">{order.short_id}</h2>
-                                </div>
-                                <div className={`px-4 py-1.5 rounded-full text-sm font-bold border ${order.status === 'paid' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>
-                                    {order.status === 'paid' ? 'PAID & FINISHED' : 'PENDING PAYMENT'}
-                                </div>
-                            </div>
-
-                            <div className="space-y-4 mb-8">
-                                {order.items.map((item, i) => (
-                                    <div key={i} className="flex items-center gap-4 bg-[var(--color-bg-secondary)] p-3 rounded-2xl border border-[var(--color-border)]">
-                                        <div className="w-10 h-10 bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] rounded-full flex items-center justify-center font-bold">{item.qty}x</div>
-                                        <div className="flex-1">
-                                            <p className="font-semibold text-[var(--color-text-primary)] text-[16px]">{item.name}</p>
-                                        </div>
-                                        <p className="font-medium text-[var(--color-text-secondary)] text-[16px]">${(item.price * item.qty).toFixed(2)}</p>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="flex justify-between items-center text-[24px]">
-                                <span className="font-sans font-medium text-[var(--color-text-secondary)]">Total</span>
-                                <span className="font-display font-bold text-[var(--color-text-primary)]">${order.total.toFixed(2)}</span>
-                            </div>
+                            <button onClick={() => setFilterStatus('paid')} className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${filterStatus === 'paid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                                Completed
+                            </button>
                         </div>
+                    </div>
 
-                        {/* Action Panel */}
-                        <div className="w-full md:w-80 flex flex-col gap-4">
-                            {order.status !== 'paid' ? (
-                                <button
-                                    onClick={markAsPaid}
-                                    disabled={isLoading}
-                                    className="w-full h-32 bg-[var(--color-text-primary)] hover:bg-[#2A2A2A] text-white rounded-3xl shadow-lg flex flex-col items-center justify-center gap-2 transition-all hover:-translate-y-1 active:scale-95 disabled:opacity-50 disabled:hover:translate-y-0"
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar bg-gray-50/50">
+                        {filteredOrders.length === 0 ? (
+                            <div className="text-center mt-10 opacity-50">
+                                <Search size={32} className="mx-auto mb-3" />
+                                <p className="font-medium text-sm">No {filterStatus} orders found.</p>
+                            </div>
+                        ) : (
+                            filteredOrders.map(o => (
+                                <div
+                                    key={o.short_id}
+                                    onClick={() => { setIsScanning(false); setSelectedOrder(o); }}
+                                    className={`p-4 rounded-xl border cursor-pointer transition-all hover:shadow-md ${selectedOrder?.short_id === o.short_id ? 'bg-[var(--color-bg-primary)] border-[var(--color-accent)] ring-1 ring-[var(--color-accent)] shadow-sm' : 'bg-white border-gray-200'}`}
                                 >
-                                    {isLoading ? <span className="animate-spin text-2xl">◌</span> : <CheckCircle size={32} />}
-                                    <span className="font-bold text-lg">Mark as Paid</span>
-                                </button>
-                            ) : (
-                                <div className="w-full h-32 bg-green-50 border border-green-200 text-green-700 rounded-3xl flex flex-col items-center justify-center gap-2 shadow-inner">
-                                    <CheckCircle size={32} />
-                                    <span className="font-bold text-lg">Transaction Complete</span>
+                                    <div className="flex justify-between items-start mb-3">
+                                        <span className="font-display font-bold text-xl tracking-tight text-gray-900">{o.short_id}</span>
+                                        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 flex items-center gap-1">
+                                            <Clock size={12} /> {formatTime(o.created_at)}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-end">
+                                        <p className="text-sm font-medium text-gray-500">{o.items.reduce((acc, curr) => acc + curr.qty, 0)} items</p>
+                                        <p className="font-bold text-[var(--color-text-primary)]">${o.total.toFixed(2)}</p>
+                                    </div>
                                 </div>
-                            )}
+                            ))
+                        )}
+                    </div>
+                </aside>
 
-                            <button onClick={() => setOrder(null)} className="w-full py-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-2xl font-semibold text-[var(--color-text-primary)] hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors">
-                                Clear / Next Order
-                            </button>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                {/* Right Panel: Content Area */}
+                <main className="flex-1 flex flex-col bg-[#F9F7F5] relative overflow-hidden">
+
+                    {/* Error Toast */}
+                    <AnimatePresence>
+                        {errorMsg && (
+                            <motion.div initial={{ y: -50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -50, opacity: 0 }} className="absolute top-6 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-full font-semibold shadow-xl flex items-center gap-3">
+                                <span>{errorMsg}</span>
+                                <button onClick={() => setErrorMsg('')}><X size={18} className="opacity-70 hover:opacity-100" /></button>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
+                    <div className="p-8 h-full flex flex-col items-center justify-center relative">
+
+                        {/* Empty State / Lookup */}
+                        {!selectedOrder && !isScanning && (
+                            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-xl text-center">
+                                <div className="w-24 h-24 bg-[var(--color-accent)]/10 rounded-full flex items-center justify-center mx-auto mb-8 text-[var(--color-accent)]">
+                                    <Search size={40} />
+                                </div>
+                                <h2 className="text-[32px] font-display font-bold text-gray-900 mb-2">Find an Order</h2>
+                                <p className="text-gray-500 mb-10">Select an order from the feed, or search manually.</p>
+
+                                <form onSubmit={handleSearchSubmit} className="relative mb-8 shadow-sm">
+                                    <input
+                                        id="order-search"
+                                        type="text"
+                                        placeholder="Enter 4-digit code (e.g. ABCD)"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value.toUpperCase())}
+                                        maxLength={10}
+                                        className="w-full px-6 py-5 rounded-2xl border border-gray-200 bg-white focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)] outline-none text-[22px] font-mono tracking-[0.2em] text-center text-gray-900 placeholder:tracking-normal placeholder:font-sans placeholder:text-[16px] transition-all"
+                                    />
+                                    <button type="submit" disabled={isLoading || searchTerm.length < 4} className="absolute right-3 top-1/2 -translate-y-1/2 bg-[var(--color-text-primary)] text-white p-3 rounded-xl disabled:opacity-50 hover:bg-black transition-colors">
+                                        {isLoading ? <span className="animate-spin flex text-xl">◌</span> : <ChevronRight size={24} />}
+                                    </button>
+                                </form>
+
+                                <div className="flex items-center gap-4 mb-8">
+                                    <div className="h-px bg-gray-200 flex-1" />
+                                    <span className="text-gray-400 font-medium text-xs px-2 tracking-widest uppercase">OR</span>
+                                    <div className="h-px bg-gray-200 flex-1" />
+                                </div>
+
+                                <button onClick={startScanner} className="w-full py-5 rounded-2xl bg-white border border-gray-200 text-[var(--color-text-primary)] font-bold text-[16px] flex justify-center items-center gap-3 hover:border-[var(--color-text-primary)] hover:shadow-md transition-all group">
+                                    <div className="p-2 bg-gray-100 rounded-lg group-hover:bg-[var(--color-text-primary)] group-hover:text-white transition-colors">
+                                        <Camera size={20} />
+                                    </div>
+                                    Scan Customer QR Code
+                                </button>
+                            </motion.div>
+                        )}
+
+                        {/* Scanner Full-Frame */}
+                        {isScanning && (
+                            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="absolute inset-8 bg-black rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+                                <div className="bg-white/10 backdrop-blur-md p-6 flex justify-between items-center z-10">
+                                    <h3 className="font-display font-medium text-xl text-white flex items-center gap-3"><Camera /> Point camera at QR</h3>
+                                    <button onClick={stopScanner} className="text-white hover:bg-white/20 p-2 rounded-full transition-colors"><X size={24} /></button>
+                                </div>
+                                <div className="flex-1 bg-black relative flex items-center justify-center">
+                                    <div id="qr-reader" className="w-full max-w-2xl" />
+                                </div>
+                            </motion.div>
+                        )}
+
+                        {/* Order Detail View */}
+                        {selectedOrder && !isScanning && (
+                            <motion.div key={selectedOrder.short_id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-2xl bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden flex flex-col max-h-full">
+
+                                <div className="p-8 border-b border-gray-100 flex-shrink-0 bg-gray-50/50">
+                                    <button onClick={() => setSelectedOrder(null)} className="flex items-center text-gray-500 hover:text-gray-900 font-semibold text-sm mb-6 transition-colors group px-2 py-1 -ml-2 rounded-lg hover:bg-gray-100">
+                                        <X className="mr-2" size={16} /> Close Order
+                                    </button>
+
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <p className="text-[12px] uppercase tracking-widest font-bold text-gray-400 mb-1">Receipt Code</p>
+                                            <h2 className="text-[48px] font-mono tracking-wider font-bold text-[var(--color-text-primary)] leading-none mb-2">{selectedOrder.short_id}</h2>
+                                            <p className="text-sm font-semibold text-gray-500 flex items-center gap-1.5"><Clock size={14} /> {formatTime(selectedOrder.created_at)}</p>
+                                        </div>
+                                        <div className={`px-4 py-2 rounded-xl text-sm font-bold border ${selectedOrder.status === 'paid' ? 'bg-green-50 text-green-700 border-green-200 shadow-inner' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
+                                            {selectedOrder.status === 'paid' ? '✔ FINISHED' : 'PENDING PAYMENT'}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="p-8 flex-1 overflow-y-auto space-y-4">
+                                    <h3 className="font-display font-bold text-lg text-gray-900 mb-4 border-b border-gray-100 pb-2">Order Line Items</h3>
+                                    {selectedOrder.items.map((item, i) => (
+                                        <div key={i} className="flex items-center justify-between gap-4 py-1">
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-8 h-8 bg-gray-100 text-gray-600 rounded-lg flex items-center justify-center font-bold text-sm border border-gray-200">{item.qty}</div>
+                                                <p className="font-semibold text-gray-800 text-lg">{item.name}</p>
+                                            </div>
+                                            <p className="font-semibold text-gray-600">${(item.price * item.qty).toFixed(2)}</p>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="p-8 bg-gray-50 border-t border-gray-100 flex-shrink-0">
+                                    <div className="flex justify-between items-center text-[28px] mb-8">
+                                        <span className="font-sans font-bold text-gray-500">Total Due</span>
+                                        <span className="font-display font-bold text-[var(--color-text-primary)]">${selectedOrder.total.toFixed(2)}</span>
+                                    </div>
+
+                                    {selectedOrder.status !== 'paid' ? (
+                                        <button
+                                            onClick={() => markAsPaid(selectedOrder)}
+                                            disabled={isLoading}
+                                            className="w-full py-5 bg-[var(--color-text-primary)] hover:bg-[#2A2A2A] text-white rounded-2xl shadow-[0_8px_24px_rgba(44,40,37,0.2)] flex items-center justify-center gap-3 transition-all active:scale-[0.98] disabled:opacity-50"
+                                        >
+                                            {isLoading ? <span className="animate-spin text-xl">◌</span> : <CreditCard size={24} />}
+                                            <span className="font-bold text-lg">Accept Payment & Finish</span>
+                                        </button>
+                                    ) : (
+                                        <div className="w-full py-5 bg-green-50 border border-green-200 text-green-700 rounded-2xl flex items-center justify-center gap-2 shadow-inner">
+                                            <CheckCircle size={24} />
+                                            <span className="font-bold text-lg">Paid & Processed</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                            </motion.div>
+                        )}
+                    </div>
+                </main>
+            </div>
         </div>
     );
 }

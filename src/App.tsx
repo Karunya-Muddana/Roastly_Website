@@ -864,7 +864,7 @@ export default function App() {
   return (
     <div className="min-h-screen relative">
       <CustomCursor />
-      <Navigation view={view} setView={setView} />
+      {view !== 'owner' && <Navigation view={view} setView={setView} />}
       <main>
         {view === 'home' && (
           <>
@@ -882,7 +882,7 @@ export default function App() {
         {view === 'menu' && <FullMenu />}
         {view === 'owner' && <OwnerPortal />}
       </main>
-      <Footer />
+      {view !== 'owner' && <Footer />}
     </div>
   );
 }
